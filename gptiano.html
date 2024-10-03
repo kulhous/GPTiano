@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Piano Keyboard</title>
+    <style>
+        .piano {
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            margin: 50px;
+            position: relative;
+        }
+
+        .key {
+            width: 60px;
+            height: 300px;
+            margin: 0;
+            background: white;
+            border: 1px solid black;
+            cursor: pointer;
+            transition: background 0.1s;
+            position: relative;
+            box-sizing: border-box;
+        }
+
+        .key.black {
+            width: 40px;
+            height: 180px;
+            background: black;
+            position: relative;
+            top: -120px;
+            left: 20px;
+            margin-left: -40px;
+            z-index: 2;
+        }
+
+        .key.pressed {
+            background: lightblue;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            margin: 20px;
+            gap: 20px;
+        }
+
+        .control-button {
+            padding: 10px;
+            cursor: pointer;
+            border: 1px solid black;
+            border-radius: 4px;
+            background-color: lightgray;
+        }
+
+        .adsr-control {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .adsr-control label {
+            font-size: 0.9em;
+        }
+
+        .adsr-control input {
+            width: 150px;
+        }
+
+        .octave-slider {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0 20px;
+        }
+
+        .waveform-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .instructions {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 1.1em;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <div class="octave-slider">
+            <label for="octave-shift">Octave Shift</label>
+            <input type="range" id="octave-shift" min="-1" max="1" step="1" value="0">
+        </div>
+        <div class="adsr-control">
+            <label for="attack">Attack</label>
+            <input type="range" id="attack" min="0" max="1" step="0.01" value="0.1">
+            <label for="decay">Decay</label>
+            <input type="range" id="decay" min="0" max="1" step="0.01" value="0.2">
+            <label for="sustain">Sustain</label>
+            <input type="range" id="sustain" min="0" max="1" step="0.01" value="0.3">
+            <label for="release">Release</label>
+            <input type="range" id="release" min="0" max="1" step="0.01" value="0.5">
+        </div>
+        <div class="waveform-controls">
+            <button class="control-button waveform-button" data-waveform="sine">Sine</button>
+            <button class="control-button waveform-button" data-waveform="square">Square</button>
+            <button class="control-button waveform-button" data-waveform="triangle">Triangle</button>
+            <button class="control-button waveform-button" data-waveform="sawtooth">Sawtooth</button>
+        </div>
+        <button class="control-button" id="play-screenshot-music">Play Largo</button>
+    </div>
+    <div class="instructions">
+        Use your keyboard to play notes: 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l' correspond to different notes. You can also adjust the octave using the slider, and experiment with different sound waveforms by clicking the buttons. Try the 'Play Largo' button to hear a musical excerpt!
+    </div>
+    <div class="piano" id="piano">
+        <!-- Piano keys will be dynamically generated -->
+    </div>
+    <script>
+        // Use the Web Audio API to synthesize notes
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioContext = new AudioContext();
+        const activeOscillators = {};
+        let currentOctave = 4;
+        let waveform = 'triangle';
+
+        const piano = document.getElementById('piano');
+        const attackControl = document.getElementById('attack');
+        const decayControl = document.getElementById('decay');
+        const sustainControl = document.getElementById('sustain');
+        const releaseControl = document.getElementById('release');
+        const octaveShiftControl = document.getElementById('octave-shift');
+
+        const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+        const keyMappings = {
+            'a': 'C',
+            'w': 'C#',
+            's': 'D',
+            'e': 'D#',
+            'd': 'E',
+            'f': 'F',
+            't': 'F#',
+            'g': 'G',
+            'y': 'G#',
+            'h': 'A',
+            'u': 'A#',
+            'j': 'B',
+            'k': 'C', // Octave higher than 'a'
+            'l': 'D'  // Octave higher than 's'
+        };
+
+        function createPianoKeys() {
+            piano.innerHTML = '';
+            for (let octave = currentOctave - 1; octave <= currentOctave + 1; octave++) {
+                for (let i = 0; i < noteNames.length; i++) {
+                    const note = noteNames[i];
+                    const key = document.createElement('div');
+                    key.classList.add('key');
+                    if (note.includes('#')) {
+                        key.classList.add('black');
+                    }
+                    key.setAttribute('data-note', `${note}${octave}`);
+                    piano.appendChild(key);
+                }
+            }
+            addKeyEventListeners();
+        }
+
+        createPianoKeys();
+
+        function playNoteStart(note) {
+            const frequencies = {
+                'C3': 130.81,
+                'C#3': 138.59,
+                'D3': 146.83,
+                'D#3': 155.56,
+                'E3': 164.81,
+                'F3': 174.61,
+                'F#3': 185.00,
+                'G3': 196.00,
+                'G#3': 207.65,
+                'A3': 220.00,
+                'A#3': 233.08,
+                'B3': 246.94,
+                'C4': 261.63,
+                'C#4': 277.18,
+                'D4': 293.66,
+                'D#4': 311.13,
+                'E4': 329.63,
+                'F4': 349.23,
+                'F#4': 369.99,
+                'G4': 392.00,
+                'G#4': 415.30,
+                'A4': 440.00,
+                'A#4': 466.16,
+                'B4': 493.88,
+                'C5': 523.25,
+                'C#5': 554.37,
+                'D5': 587.33,
+                'D#5': 622.25,
+                'E5': 659.25,
+                'F5': 698.46,
+                'G5': 783.99,
+                'A5': 880.00,
+                'B5': 987.77,
+                'C6': 1046.50,
+                'C#6': 1108.73,
+                'D6': 1174.66,
+                'D#6': 1244.51,
+                'E6': 1318.51
+            };
+
+            if (activeOscillators[note]) return;
+
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            // Envelope parameters for ADSR
+            const attackTime = parseFloat(attackControl.value);
+            const decayTime = parseFloat(decayControl.value);
+            const sustainLevel = parseFloat(sustainControl.value);
+            const releaseTime = parseFloat(releaseControl.value);
+
+            oscillator.type = waveform; // Set waveform type based on user selection
+            oscillator.frequency.setValueAtTime(frequencies[note], audioContext.currentTime);
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime); // Start at 0 gain
+
+            // Attack phase
+            gainNode.gain.linearRampToValueAtTime(1.0, audioContext.currentTime + attackTime);
+            // Decay phase
+            gainNode.gain.linearRampToValueAtTime(sustainLevel, audioContext.currentTime + attackTime + decayTime);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.start();
+
+            activeOscillators[note] = { oscillator, gainNode, releaseTime, startTime: audioContext.currentTime };
+        }
+
+        function playNoteStop(note) {
+            if (activeOscillators[note]) {
+                const { oscillator, gainNode, releaseTime, startTime } = activeOscillators[note];
+                const stopTime = audioContext.currentTime;
+
+                // Release phase
+                gainNode.gain.setValueAtTime(gainNode.gain.value, stopTime);
+                gainNode.gain.linearRampToValueAtTime(0, stopTime + releaseTime);
+
+                oscillator.stop(stopTime + releaseTime);
+                delete activeOscillators[note];
+            }
+        }
+
+        function addKeyEventListeners() {
+            // Add event listeners to each key
+            document.querySelectorAll('.key').forEach(key => {
+                key.addEventListener('mousedown', () => {
+                    const note = key.getAttribute('data-note');
+                    playNoteStart(note);
+                    key.classList.add('pressed');
+                });
+
+                key.addEventListener('mouseup', () => {
+                    const note = key.getAttribute('data-note');
+                    playNoteStop(note);
+                    key.classList.remove('pressed');
+                });
+
+                key.addEventListener('mouseleave', () => {
+                    const note = key.getAttribute('data-note');
+                    playNoteStop(note);
+                    key.classList.remove('pressed');
+                });
+            });
+        }
+
+        // Octave shift control
+        octaveShiftControl.addEventListener('input', () => {
+            currentOctave = 4 + parseInt(octaveShiftControl.value);
+        });
+
+        // Keyboard controls for playing notes
+        document.addEventListener('keydown', (e) => {
+            if (e.repeat) return;
+            let noteName = keyMappings[e.key];
+            if (noteName) {
+                if (e.key === 'k') {
+                    noteName += (currentOctave + 1); // Higher octave than 'a'
+                } else if (e.key === 'l') {
+                    noteName += (currentOctave + 1); // Higher octave than 's'
+                } else {
+                    noteName += currentOctave;
+                }
+                playNoteStart(noteName);
+                const keyElement = document.querySelector(`.key[data-note="${noteName}"]`);
+                if (keyElement) {
+                    keyElement.classList.add('pressed');
+                }
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            let noteName = keyMappings[e.key];
+            if (noteName) {
+                if (e.key === 'k') {
+                    noteName += (currentOctave + 1);
+                } else if (e.key === 'l') {
+                    noteName += (currentOctave + 1);
+                } else {
+                    noteName += currentOctave;
+                }
+                playNoteStop(noteName);
+                const keyElement = document.querySelector(`.key[data-note="${noteName}"]`);
+                if (keyElement) {
+                    keyElement.classList.remove('pressed');
+                }
+            }
+        });
+
+        // Waveform control buttons
+        document.querySelectorAll('.waveform-button').forEach(button => {
+            button.addEventListener('click', () => {
+                waveform = button.getAttribute('data-waveform');
+            });
+        });
+
+        // Play screenshot music
+        document.getElementById('play-screenshot-music').addEventListener('click', () => {
+            const notes = [
+                { note: 'E4', duration: 1.5 },
+                { note: 'G4', duration: 0.5 },
+                { note: 'G4', duration: 2.0 },
+                { note: 'E4', duration: 1.5 },
+                { note: 'D4', duration: 0.5 },
+                { note: 'C4', duration: 2.0 },
+                { note: 'D4', duration: 1.5 },
+                { note: 'E4', duration: 0.5 },
+                { note: 'G4', duration: 1.5 },
+                { note: 'E4', duration: 0.5 },
+                { note: 'D4', duration: 4.0 },
+                { note: 'E4', duration: 1.5 },
+                { note: 'G4', duration: 0.5 },
+                { note: 'G4', duration: 2.0 },
+                { note: 'E4', duration: 1.5 },
+                { note: 'D4', duration: 0.5 },
+                { note: 'C4', duration: 2.0 },
+                { note: 'D4', duration: 1.5 },
+                { note: 'E4', duration: 0.5 },
+                { note: 'D4', duration: 1.5 },
+                { note: 'C4', duration: 0.5 },
+                { note: 'C4', duration: 4.0 },
+            ];
+            let time = audioContext.currentTime;
+            notes.forEach(({ note, duration }) => {
+                setTimeout(() => {
+                    playNoteStart(note);
+                    setTimeout(() => playNoteStop(note), duration * 450);
+                }, (time - audioContext.currentTime) * 500);
+                time += duration;
+            });
+        });
+    </script>
+</body>
+</html>
